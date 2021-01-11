@@ -4,13 +4,13 @@ world_prefix: world # was rule in v1.0
 seed: 40
 world_id: 0
 world_mode:  # can be train/valid/test or None
-num_graphs: 5000 # max number of graphs (set a bit higher to allow all graphs to generate)
+num_graphs: 20000 # max number of graphs (set a bit higher to allow all graphs to generate)
 num_train_graphs: 1000
 num_valid_graphs: 100
 num_test_graphs: 100
 re_index: True
 test_size: 0.2
-max_path_len: 8
+max_path_len: 9 # Number of relations : max_path_len - 1
 add_noise: False
 num_steps: 50
 expansion_prob: 0.5
@@ -22,3 +22,7 @@ world_graph:
   expansion_prob: 0.5
   num_completion_steps: 100
   max_path_len: 10
+# Clutrr specific args - optional, can provide blank
+train_descriptor_lengths: 2,3,4,5
+val_descriptor_lengths: 3,4,5
+test_descriptor_lengths: 3,4,5,6,7,8

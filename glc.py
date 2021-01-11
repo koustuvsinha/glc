@@ -54,7 +54,7 @@ def get_edges(path):
 
 
 def verify_and_load_rule_store(loc):
-    """ Given a json rule store, it must be of the form
+    """Given a json rule store, it must be of the form
         "r_1,r_2" -> "r_3"
         Then return and load the rule store
     Args:
@@ -130,7 +130,7 @@ def sample_path_and_target(
     last_node: int = 0,
 ) -> Tuple[List[Tuple[int, int, str]], List[str], List[int], int, int, str, List[str]]:
     """Sample a path and target for the graph
-    Given a rule dict: 
+    Given a rule dict:
     - randomly sample a target relation
     - iteratively substitute the body of this relation to get a path
 
@@ -147,7 +147,7 @@ def sample_path_and_target(
         source (int): source node
         sink (int): sink node
         target (str): target relation
-        sampled_rule (List[str]): list of relations in the path 
+        sampled_rule (List[str]): list of relations in the path
 
     """
     ## set target
@@ -336,13 +336,13 @@ def sample_graph(
 
     Args:
         rule_world (Dict): dictionary of rules used to generate the graph
-        max_path_len (int, optional): Path length of the descriptor. 
+        max_path_len (int, optional): Path length of the descriptor.
             Higher number would lead to more difficulty. Defaults to 5.
         add_noise (bool): If true, add the noise (dangling, disconnected or supporting components) in the graph
-        num_steps (int, optional): Maximum number of expansion steps used in a graph. 
+        num_steps (int, optional): Maximum number of expansion steps used in a graph.
             Higher number results to more complex graphs. Defaults to 50.
         expansion_prob (float, optional): Probability of expansion of the graph in each step
-        num_completion_steps (int, optional): Max number of steps to run graph completion. 
+        num_completion_steps (int, optional): Max number of steps to run graph completion.
             Higher number results to dense graphs. Defaults to 10.
         debug (bool, optional): [description]. Defaults to False.
         random_path_len (bool, optional): Defaults to True. If False, fixes randomization of graph length, and is always max_path_length + 1
@@ -439,7 +439,7 @@ def sample_world_graph(
     num_completion_steps: int = 10,
     debug: bool = False,
 ) -> List[Tuple[int, int, str]]:
-    """ Sample world graph given a rule world
+    """Sample world graph given a rule world
 
     Args:
         rule_world (Dict[str, str]): [description]
@@ -486,13 +486,30 @@ def sample_world_graph(
 ## Splitting logic
 
 
-def split_world(world, test_size=0.2, keep_train_des_len=3):
-    """ Split the graphs
+def get_des_ids(sp):
+    if len(sp) > 0:
+        return [int(x) for x in sp.split(",")]
+    else:
+        return []
+
+
+def split_world(
+    world,
+    test_size=0.2,
+    keep_train_des_len=2,
+    train_des_lens="",
+    val_des_lens="",
+    test_des_lens="",
+):
+    """Split the graphs
 
     Args:
         world ([type]): [description]
         test_size (float, optional): [description]. Defaults to 0.2.
-        keep_train_des_len (int, optional): [description]. Defaults to 3. descriptors of length <=3 should be added to train set
+        keep_train_des_len (int, optional): [description]. Defaults to 3. descriptors of length <=2 should be added to train set
+        train_des_lens: comma separated descriptor lengths to include in train set
+        val_des_lens: comma separated descriptor lengths to include in val set
+        test_des_lens: comma separated descriptor lengths to include in test set
 
     Returns:
         [type]: [description]
@@ -504,6 +521,7 @@ def split_world(world, test_size=0.2, keep_train_des_len=3):
     des_len_ct = {}
     for d in des:
         num_des = len(d.split(","))
+        # always keep these descriptors in train distribution
         if num_des <= keep_train_des_len:
             train_des.append(d)
         else:
@@ -516,13 +534,37 @@ def split_world(world, test_size=0.2, keep_train_des_len=3):
 
     train_m_des, test_des = train_test_split(res_des, test_size=test_size)
     train_m_des, val_des = train_test_split(train_m_des, test_size=test_size)
+
     train_des = train_des + train_m_des
     val_des = set(val_des)
     test_des = set(test_des)
 
-    print(f"Train unique descriptors: {len(train_des)}")
-    print(f"Val unique descriptors: {len(val_des)}")
-    print(f"Test unique descriptors: {len(test_des)}")
+    # Filter
+    train_des_lens = get_des_ids(train_des_lens)
+    val_des_lens = get_des_ids(val_des_lens)
+    test_des_lens = get_des_ids(test_des_lens)
+    if len(train_des_lens) > 0:
+        print("Filtering train descriptors ...")
+        train_des = set(
+            [des for des in train_des if len(des.split(",")) in train_des_lens]
+        )
+    if len(val_des_lens) > 0:
+        print("Filtering val descriptors ...")
+        val_des = set([des for des in val_des if len(des.split(",")) in val_des_lens])
+    if len(test_des_lens) > 0:
+        print("Filtering test descriptors ...")
+        test_des = set(
+            [des for des in test_des if len(des.split(",")) in test_des_lens]
+        )
+
+    def describe(des):
+        return Counter([len(x.split(",")) for x in des])
+
+    print(f"Train unique descriptors: Total: {len(train_des)}, {describe(train_des)}")
+    print(f"Val unique descriptors: Total: {len(val_des)}, {describe(val_des)}")
+    print(
+        f"Test unique descriptors: Total: {len(test_des)}, Dist: {describe(test_des)}"
+    )
 
     train_ids = []
     val_ids = []
@@ -576,7 +618,9 @@ def main(args: DictConfig):
         save_loc = Path(args.save_loc) / f"{args.world_mode}/{args.world_prefix}_{task}"
     else:
         save_loc = Path(args.save_loc) / f"{args.world_prefix}_{task}"
-    rules = verify_and_load_rule_store(Path(hydra.utils.get_original_cwd()) / f"{args.rule_store}_{task}.json")
+    rules = verify_and_load_rule_store(
+        Path(hydra.utils.get_original_cwd()) / f"{args.rule_store}_{task}.json"
+    )
     print(f"Found {len(rules)} rules")
     graph_store = []
     for _ in tqdm(range(args.num_graphs)):
@@ -612,10 +656,17 @@ def main(args: DictConfig):
         graph_store.append(graph)
     rows_str = human_format(args.num_graphs)
     dump_jsonl(
-        graph_store, save_loc / f"graphs_{rows_str}_{task}.jsonl",
+        graph_store,
+        save_loc / f"graphs_{rows_str}_{task}.jsonl",
     )
     # split train test
-    _, train_ids, val_ids, test_ids = split_world(graph_store, test_size=args.test_size)
+    _, train_ids, val_ids, test_ids = split_world(
+        graph_store,
+        test_size=args.test_size,
+        train_des_lens=args.train_descriptor_lengths,
+        val_des_lens=args.val_descriptor_lengths,
+        test_des_lens=args.test_descriptor_lengths,
+    )
     # subsample if exact number required
     if len(train_ids) > args.num_train_graphs:
         train_ids = random.sample(train_ids, args.num_train_graphs)
@@ -633,13 +684,16 @@ def main(args: DictConfig):
     valid_graphs = [graph_store[i] for i in val_ids]
     test_graphs = [graph_store[i] for i in test_ids]
     dump_jsonl(
-        train_graphs, save_loc / "train.jsonl",
+        train_graphs,
+        save_loc / "train.jsonl",
     )
     dump_jsonl(
-        valid_graphs, save_loc / "valid.jsonl",
+        valid_graphs,
+        save_loc / "valid.jsonl",
     )
     dump_jsonl(
-        test_graphs, save_loc / "test.jsonl",
+        test_graphs,
+        save_loc / "test.jsonl",
     )
     # Sample world graph
     if args.world_graph.sample:
@@ -655,7 +709,8 @@ def main(args: DictConfig):
         )
         world_graph = [{"edges": world_edges}]
         dump_jsonl(
-            world_graph, save_loc / "meta_graph.jsonl",
+            world_graph,
+            save_loc / "meta_graph.jsonl",
         )
     # Legacy - config.json
     legacy_rules = [
@@ -669,4 +724,3 @@ def main(args: DictConfig):
 
 if __name__ == "__main__":
     main()
-
