@@ -1,0 +1,18 @@
+{
+    "child,child": "grand",
+    "child,SO": "in-law",
+    "child,sibling": "child",
+    "child,inv-un": "sibling",
+    "child,inv-grand": "inv-child",
+    "inv-child,child": "sibling",
+    "inv-child,inv-child": "inv-grand",
+    "inv-child,sibling": "inv-un",
+    "SO,inv-child": "inv-in-law",
+    "SO,grand": "grand",
+    "SO,child": "child",
+    "sibling,sibling": "sibling",
+    "sibling,inv-grand": "inv-grand",
+    "sibling,child": "un",
+    "sibling,inv-child": "inv-child",
+    "grand,sibling": "grand"
+}
