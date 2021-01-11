@@ -29,8 +29,10 @@ pip install -r requirements.txt
 
 The file `graph_config.yaml` contains the parameters requires for graph generation. We use Hydra which allows us to also configure the parameters from command line.
 
+The script currently expects a `rule_{world_id}.json` in the `save_loc` folder. I'll update it later to be more generic.
+
 ```
-python graph_gen.py num_graphs=300000
+python glc.py save_loc=/scratch/koustuvs/clutrr_2.0 world_id=0 world_prefix=rule
 ```
 
 ## Things to do
