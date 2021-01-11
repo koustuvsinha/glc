@@ -576,7 +576,7 @@ def main(args: DictConfig):
         save_loc = Path(args.save_loc) / f"{args.world_mode}/{args.world_prefix}_{task}"
     else:
         save_loc = Path(args.save_loc) / f"{args.world_prefix}_{task}"
-    rules = verify_and_load_rule_store(save_loc / f"rules_{task}.json")
+    rules = verify_and_load_rule_store(Path(hydra.utils.get_original_cwd()) / f"{args.rule_store}_{task}.json")
     print(f"Found {len(rules)} rules")
     graph_store = []
     for _ in tqdm(range(args.num_graphs)):
