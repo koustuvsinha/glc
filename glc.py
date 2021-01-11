@@ -579,11 +579,13 @@ def split_world(
     return des, train_ids, val_ids, test_ids
 
 
-def re_index_nodes(graph):
+def re_index_nodes(graph, randomize_node_id=False):
     """Re-index the node ids from 0
 
     Args:
         graph ([type]): graph object
+        randomize_node_id (bool): Defaults to False. If True, 
+            then apply randomized node ids
 
     Returns:
         [type]: re-indexed graph object
@@ -594,6 +596,13 @@ def re_index_nodes(graph):
             node_map[e[0]] = len(node_map)
         if e[1] not in node_map:
             node_map[e[1]] = len(node_map)
+    if randomize_node_id > 0:
+        new_node_map = copy.deepcopy(node_map)
+        node_keys = list(node_map.keys())
+        rand_keys = random.sample(node_keys, len(node_keys))
+        for ni, nk in enumerate(node_keys):
+            new_node_map[rand_keys[ni]] = node_map[nk]
+        node_map = copy.deepcopy(new_node_map)
     new_graph = copy.deepcopy(graph)
     # reset
     new_graph["edges"] = []
@@ -652,7 +661,7 @@ def main(args: DictConfig):
             "resolution_path": path,
         }
         if args.re_index:
-            graph = re_index_nodes(graph)
+            graph = re_index_nodes(graph, args.randomize_node_id)
         graph_store.append(graph)
     rows_str = human_format(args.num_graphs)
     dump_jsonl(
