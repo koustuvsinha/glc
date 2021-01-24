@@ -458,7 +458,7 @@ def sample_world_graph(
     all_edges = []
     last_node = 0
     for _ in range(num_sampled_paths):
-        (edges, _, _, _, last_node, _, _,) = sample_path_and_target(
+        (edges, _, _, _, last_node, _, _) = sample_path_and_target(
             rule_world=rule_world, max_path_len=max_path_len, last_node=last_node
         )
         all_edges.extend(edges)
@@ -627,6 +627,8 @@ def main(args: DictConfig):
         save_loc = Path(args.save_loc) / f"{args.world_mode}/{args.world_prefix}_{task}"
     else:
         save_loc = Path(args.save_loc) / f"{args.world_prefix}_{task}"
+    # create folder if not present
+    save_loc.mkdir(exist_ok=True, parents=True)
     rules = verify_and_load_rule_store(
         Path(hydra.utils.get_original_cwd()) / f"{args.rule_store}_{task}.json"
     )
@@ -664,10 +666,7 @@ def main(args: DictConfig):
             graph = re_index_nodes(graph, args.randomize_node_id)
         graph_store.append(graph)
     rows_str = human_format(args.num_graphs)
-    dump_jsonl(
-        graph_store,
-        save_loc / f"graphs_{rows_str}_{task}.jsonl",
-    )
+    dump_jsonl(graph_store, save_loc / f"graphs_{rows_str}_{task}.jsonl")
     # split train test
     _, train_ids, val_ids, test_ids = split_world(
         graph_store,
@@ -692,18 +691,9 @@ def main(args: DictConfig):
     train_graphs = [graph_store[i] for i in train_ids]
     valid_graphs = [graph_store[i] for i in val_ids]
     test_graphs = [graph_store[i] for i in test_ids]
-    dump_jsonl(
-        train_graphs,
-        save_loc / "train.jsonl",
-    )
-    dump_jsonl(
-        valid_graphs,
-        save_loc / "valid.jsonl",
-    )
-    dump_jsonl(
-        test_graphs,
-        save_loc / "test.jsonl",
-    )
+    dump_jsonl(train_graphs, save_loc / "train.jsonl")
+    dump_jsonl(valid_graphs, save_loc / "valid.jsonl")
+    dump_jsonl(test_graphs, save_loc / "test.jsonl")
     # Sample world graph
     if args.world_graph.sample:
         world_edges = sample_world_graph(
@@ -717,10 +707,7 @@ def main(args: DictConfig):
             debug=True,
         )
         world_graph = [{"edges": world_edges}]
-        dump_jsonl(
-            world_graph,
-            save_loc / "meta_graph.jsonl",
-        )
+        dump_jsonl(world_graph, save_loc / "meta_graph.jsonl")
     # Legacy - config.json
     legacy_rules = [
         {"body": body.split(","), "head": head, "p": 1.0}
