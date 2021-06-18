@@ -425,7 +425,10 @@ def sample_graph(
 
     if debug:
         print("Getting final edges")
+    sub_e = list(set(sub_e))
     edges = [(e[0], e[1], edge2rel[(e[0], e[1])]) for e in sub_e]
+    # sort edges
+    edges = list(sorted(edges, key=lambda tup: tup[1]))
     descriptor = ",".join(sampled_rule)
     return edges, source, sink, target, descriptor, rules_used, rules_used_pos, path
 
@@ -584,7 +587,7 @@ def re_index_nodes(graph, randomize_node_id=False):
 
     Args:
         graph ([type]): graph object
-        randomize_node_id (bool): Defaults to False. If True, 
+        randomize_node_id (bool): Defaults to False. If True,
             then apply randomized node ids
 
     Returns:
