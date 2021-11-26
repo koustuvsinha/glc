@@ -624,10 +624,14 @@ def re_index_nodes(graph, randomize_node_id=False):
 def main(args: DictConfig):
     set_seed(args.seed)
     # Derive max_path_len from descriptor_lengths
-    max_path_len = max(
-        max([int(x) for x in args.train_descriptor_lengths.split(",")]),
-        max([int(x) for x in args.val_descriptor_lengths.split(",")]),
-        max([int(x) for x in args.test_descriptor_lengths.split(",")]),
+    # max_path_len is always 1 more than the desired length of the puzzle
+    max_path_len = (
+        max(
+            max([int(x) for x in args.train_descriptor_lengths.split(",")]),
+            max([int(x) for x in args.val_descriptor_lengths.split(",")]),
+            max([int(x) for x in args.test_descriptor_lengths.split(",")]),
+        )
+        + 1
     )
     args.max_path_len = max_path_len
     print(args)
