@@ -620,9 +620,10 @@ def re_index_nodes(graph, randomize_node_id=False):
     return new_graph
 
 
-@hydra.main(config_name="graph_config")
-def main(args: DictConfig):
-    set_seed(args.seed)
+def auto_update_config(args: DictConfig) -> DictConfig:
+    """
+    Automatically update config based on user values
+    """
     # Derive max_path_len from descriptor_lengths
     # max_path_len is always 1 more than the desired length of the puzzle
     max_path_len = (
@@ -634,6 +635,28 @@ def main(args: DictConfig):
         + 1
     )
     args.max_path_len = max_path_len
+    # Derive num_graphs. This controls the total number of graphs generated,
+    # from which we will subsample
+    max_num_graphs = (
+        max(
+            [
+                args.num_graphs,
+                sum(
+                    [args.num_train_graphs, args.num_valid_graphs, args.num_test_graphs]
+                ),
+            ]
+        )
+        * args.search_multiplier
+    )
+    print(f"Expanding search to {max_num_graphs} graphs")
+    args.num_graphs = max_num_graphs
+    return args
+
+
+@hydra.main(config_name="graph_config")
+def main(args: DictConfig):
+    set_seed(args.seed)
+    args = auto_update_config(args)
     print(args)
     task = args.world_id
     ## Expects a dictionary of compositional rules, which contains rules of the form
@@ -690,6 +713,10 @@ def main(args: DictConfig):
         val_des_lens=args.val_descriptor_lengths,
         test_des_lens=args.test_descriptor_lengths,
     )
+    print(
+        f"Generated records: #Train: {len(train_ids)}, #Val: {len(val_ids)}, #Test: {len(test_ids)}"
+    )
+    print("Subsampling ...")
     # subsample if exact number required
     if len(train_ids) > args.num_train_graphs:
         train_ids = random.sample(train_ids, args.num_train_graphs)
@@ -697,6 +724,9 @@ def main(args: DictConfig):
         val_ids = random.sample(val_ids, args.num_valid_graphs)
     if len(test_ids) > args.num_test_graphs:
         test_ids = random.sample(test_ids, args.num_test_graphs)
+    print(
+        f"Storing records: #Train: {len(train_ids)}, #Val: {len(val_ids)}, #Test: {len(test_ids)}"
+    )
     # Store splits
     json.dump(
         {"train": train_ids, "valid": val_ids, "test": test_ids},
