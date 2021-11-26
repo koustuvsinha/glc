@@ -623,6 +623,14 @@ def re_index_nodes(graph, randomize_node_id=False):
 @hydra.main(config_name="graph_config")
 def main(args: DictConfig):
     set_seed(args.seed)
+    # Derive max_path_len from descriptor_lengths
+    max_path_len = max(
+        max([int(x) for x in args.train_descriptor_lengths.split(",")]),
+        max([int(x) for x in args.val_descriptor_lengths.split(",")]),
+        max([int(x) for x in args.test_descriptor_lengths.split(",")]),
+    )
+    args.max_path_len = max_path_len
+    print(args)
     task = args.world_id
     ## Expects a dictionary of compositional rules, which contains rules of the form
     ## { (r_1, r_2): r_3 }, or (head -> body)
