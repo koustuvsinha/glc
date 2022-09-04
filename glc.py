@@ -886,7 +886,7 @@ def split_world(
     return des, train_ids, val_ids, test_ids
 
 
-@hydra.main(config_name="graph_config")
+@hydra.main(config_name="graph_config", version_base="1.1")
 def main(args: DictConfig):
     set_seed(args.seed)
     args = auto_update_config(args)
@@ -933,8 +933,10 @@ def main(args: DictConfig):
     # Apply noise
     # Till now we have kept a separate list of edges for noise which are not accessed
     # This is where we add them to our graphs depending on the noise addition policy
-    graph_store.apply_noise()
-    graph_store.save()
+    if args.add_noise:
+        print("Adding noise to the generated graphs ...")
+        graph_store.apply_noise()
+        graph_store.save()
 
     # split train test
     rows_str = human_format(args.num_graphs)

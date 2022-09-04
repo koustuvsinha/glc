@@ -107,26 +107,15 @@ def test_sample_graph_no_noise():
     set_seed(42)
     rule_world = {"R_1,R_2": "R_3", "R_2,R_3": "R_1", "R_3,R_1": "R_2"}
     # Fix randomization of graph length using random_path_len = False
-    (
-        edges,
-        source,
-        sink,
-        target,
-        descriptor,
-        rules_used,
-        rules_used_pos,
-        path,
-    ) = sample_graph(
-        rule_world=rule_world, max_path_len=5, add_noise=False, random_path_len=False
-    )
-    assert source == edges[0][0]
-    assert sink == edges[-1][1]
-    assert len(rules_used) == len(edges) - 1
-    assert len(rules_used) == len(rules_used_pos)
+    graph = sample_graph(rule_world=rule_world, max_path_len=5, random_path_len=False)
+    assert graph.source == graph.edges[0][0]
+    assert graph.sink == graph.edges[-1][1]
+    assert len(graph.rules_used) == len(graph.edges) - 1
+    assert len(graph.rules_used) == len(graph.rules_used_pos)
     ## check target generated from first rule
-    assert rule_world[rules_used[0]] == target
+    assert rule_world[graph.rules_used[0]] == graph.target
     ## Check total edges
-    assert len(edges) == 5
-    assert type(descriptor) == str
-    assert len(descriptor.split(",")) == len(edges)
-    assert len(path) == len(edges) + 1
+    assert len(graph.edges) == 5
+    assert type(graph.descriptor) == str
+    assert len(graph.descriptor.split(",")) == len(graph.edges)
+    assert len(graph.resolution_path) == len(graph.edges) + 1
