@@ -1,14 +1,14 @@
-save_loc: /scratch/koustuvs/clutrr_2.0/
+save_loc: clutrr_2.0/
 rule_store: rule_bases/clutrr
 world_prefix: world # was rule in v1.0
 seed: 40
 world_id: 0
 world_mode: # can be train/valid/test or None
-num_graphs: 20000 # max number of graphs (set a bit higher to allow all graphs to generate)
-num_train_graphs: 1000
-num_valid_graphs: 100
-num_test_graphs: 100
-search_multiplier: 4 # number of times num_graphs will be multiplied to expand the search
+num_graphs: 1000 # max number of graphs (set a bit higher to allow all graphs to generate)
+num_train_graphs: 10
+num_valid_graphs: 10
+num_test_graphs: 10
+search_multiplier: 5 # number of times num_graphs will be multiplied to expand the search
 re_index: True
 test_size: 0.2
 max_path_len: 5 # Number of relations : max_path_len - 1
@@ -28,3 +28,4 @@ world_graph:
 train_descriptor_lengths: 2,3,4
 val_descriptor_lengths: 3,4
 test_descriptor_lengths: 3,4
+unique_graphs: True

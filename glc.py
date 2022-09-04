@@ -637,18 +637,12 @@ def auto_update_config(args: DictConfig) -> DictConfig:
     args.max_path_len = max_path_len
     # Derive num_graphs. This controls the total number of graphs generated,
     # from which we will subsample
-    max_num_graphs = (
-        max(
-            [
-                args.num_graphs,
-                sum(
-                    [args.num_train_graphs, args.num_valid_graphs, args.num_test_graphs]
-                ),
-            ]
-        )
-        * args.search_multiplier
+    max_num_graphs = max(
+        [
+            args.num_graphs,
+            sum([args.num_train_graphs, args.num_valid_graphs, args.num_test_graphs]),
+        ]
     )
-    print(f"Expanding search to {max_num_graphs} graphs")
     args.num_graphs = max_num_graphs
     return args
 
@@ -672,7 +666,15 @@ def main(args: DictConfig):
     )
     print(f"Found {len(rules)} rules")
     graph_store = []
-    for _ in tqdm(range(args.num_graphs)):
+    if args.unique_graphs:
+        print(
+            "Warning: unique constraints set, number of graphs found maybe lower than requested."
+        )
+    seen_graphs = set()
+    max_attempts = args.num_graphs * args.search_multiplier
+    attempt = 0
+    pb = tqdm(total=args.num_graphs)
+    while len(graph_store) < args.num_graphs:
         (
             edges,
             source,
@@ -702,7 +704,23 @@ def main(args: DictConfig):
         }
         if args.re_index:
             graph = re_index_nodes(graph, args.randomize_node_id)
-        graph_store.append(graph)
+        if args.unique_graphs:
+            # uniqueness constraint
+            graph_str = json.dumps(graph)
+            if graph_str not in seen_graphs:
+                graph_store.append(graph)
+                pb.update(1)
+            seen_graphs.add(graph_str)
+            attempt += 1
+            if attempt > max_attempts:
+                print(
+                    "Exhausted the number of attempts for graph search, consider lowering the total number of graphs requested."
+                )
+                break
+        else:
+            graph_store.append(graph)
+            pb.update(1)
+    pb.close()
     rows_str = human_format(args.num_graphs)
     dump_jsonl(graph_store, save_loc / f"graphs_{rows_str}_{task}.jsonl")
     # split train test
