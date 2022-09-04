@@ -63,6 +63,12 @@ def get_random_choice(some_list, seed=-1):
     return random.choice(some_list)
 
 
+def get_random_sample(some_list, k, seed=-1):
+    if seed > 0:
+        random.seed(seed)
+    return random.sample(some_list, k)
+
+
 def get_edges(path):
     return set([(path[pi], path[pi + 1]) for pi in range(len(path) - 1)])
 
@@ -82,7 +88,7 @@ def verify_and_load_rule_store(loc):
     return rule
 
 
-def del_simple_paths(sub_e, aps, path):
+def del_simple_paths(sub_e, aps, path, seed=-1):
     # print(len(aps))
     sub_e = copy.deepcopy(sub_e)
     e_to_del = set()
@@ -91,7 +97,7 @@ def del_simple_paths(sub_e, aps, path):
         es = get_edges(ap)
         es = es - es.intersection(path_edges)
         if len(es) > 0:  # and len(e_to_del.intersection(es)) == 0:
-            e_to_del.add(random.choice(list(es)))
+            e_to_del.add(get_random_choice(list(es), seed=seed))
     sub_e = [e for e in sub_e if e not in e_to_del]
     return sub_e
 
@@ -459,15 +465,15 @@ def sample_graph(
         print("Sampling neighbors ...")
     new_node = sink + 1
     for _ in range(num_steps):
-        expansion_num = random.uniform(0, 1)
+        expansion_num = get_random_uniform(0, 1, seed=seed)
         if expansion_num > expansion_prob:
             noise_edges = expansion_step(
-                noise_edges, body_0_map, body_1_map, head_map, new_node
+                noise_edges, body_0_map, body_1_map, head_map, new_node, seed=seed
             )
         new_node += 1
         # run completion step for n numbers
-        for _ in range(random.choice(range(1, num_completion_steps))):
-            noise_edges = completion_step(noise_edges, rules)
+        for _ in range(get_random_choice(range(1, num_completion_steps), seed=seed)):
+            noise_edges = completion_step(noise_edges, rules, seed=seed)
     ## remove self loops in noise
     noise_edges = [e for e in noise_edges if e[0] != e[1]]
     if debug:
@@ -495,12 +501,12 @@ def sample_graph(
     sub_eg = list(noise_g.edges)
     aps = list(nx.all_simple_paths(noise_g, source, sink, cutoff=path_length))
     # print(len(aps))
-    sub_eg = del_simple_paths(sub_eg, aps, path)
+    sub_eg = del_simple_paths(sub_eg, aps, path, seed=seed)
     g = nx.from_edgelist(sub_eg, create_using=nx.DiGraph)
     # print('Computing shortest paths from sink to source')
     aps = list(nx.all_simple_paths(noise_g, path[-1], path[0], cutoff=path_length))
     # print(len(aps))
-    sub_eg = del_simple_paths(sub_eg, aps, path)
+    sub_eg = del_simple_paths(sub_eg, aps, path, seed=seed)
     # sub_eg.extend(list(get_edges(path)))
 
     if debug:
@@ -580,13 +586,13 @@ def sample_world_graph(
     # Complete the graph by repeated execution of expansion and contraction
     new_node = last_node + 1
     for _ in range(num_steps):
-        if random.uniform(0, 1) > expansion_prob:
+        if get_random_uniform(0, 1, seed=seed) > expansion_prob:
             all_edges = expansion_step(
                 all_edges, body_0_map, body_1_map, head_map, new_node
             )
         new_node += 1
         # run completion step for n numbers
-        for _ in range(random.choice(range(1, num_completion_steps))):
+        for _ in range(get_random_choice(range(1, num_completion_steps), seed=seed)):
             all_edges = completion_step(all_edges, rules)
     print("Complete")
     if debug:
@@ -608,7 +614,7 @@ def get_des_ids(sp):
         return []
 
 
-def re_index_nodes(graph: GraphRow, randomize_node_id=False):
+def re_index_nodes(graph: GraphRow, randomize_node_id=False, seed=-1):
     """Re-index the node ids from 0
 
     Args:
@@ -628,7 +634,7 @@ def re_index_nodes(graph: GraphRow, randomize_node_id=False):
     if randomize_node_id > 0:
         new_node_map = copy.deepcopy(node_map)
         node_keys = list(node_map.keys())
-        rand_keys = random.sample(node_keys, len(node_keys))
+        rand_keys = get_random_sample(node_keys, len(node_keys), seed=seed)
         for ni, nk in enumerate(node_keys):
             new_node_map[rand_keys[ni]] = node_map[nk]
         node_map = copy.deepcopy(new_node_map)
@@ -681,7 +687,7 @@ def get_incoming_outgoing_edges(graph: GraphRow):
     return incoming_edges, outgoing_edges, any_path
 
 
-def apply_noise_row(graph: GraphRow, args: DictConfig):
+def apply_noise_row(graph: GraphRow, args: DictConfig, seed: int = -1):
     """
     Apply noise on graphs based on the policy
 
@@ -710,7 +716,7 @@ def apply_noise_row(graph: GraphRow, args: DictConfig):
     elif args.noise_policy == "dangling":
         if any_path:
             # remove either all incoming or outgoing edges
-            remove_choice = random.choice(["incoming", "outgoing"])
+            remove_choice = get_random_choice(["incoming", "outgoing"], seed=seed)
             if remove_choice == "incoming":
                 remove_edges = outgoing_edges
             else:
