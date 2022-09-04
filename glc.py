@@ -630,12 +630,76 @@ def re_index_nodes(graph: GraphRow, randomize_node_id=False):
     return new_graph
 
 
-def apply_noise(graphs: List[GraphRow], args: DictConfig):
+def apply_noise_row(graph: GraphRow, args: DictConfig):
     """
     Apply noise on graphs based on the policy
+
+    Available policies = "dangling" / "disconnected" / "supporting"
+
+    - supporting: the source must have at least one outgoing node, and the sink must have one incoming node
+     (although not guranteed that there exist a path in between)
+
+    - disconnected: the source *should not* have any outgoing nodes and sink should not have any incoming nodes
+    (guranteed disconnection)
+
+    - dangling: any node in resolution path has an incoming or outgoing node
+
     """
-    breakpoint()
-    return graphs
+    resolution_path = graph.resolution_path
+    outgoing_edges = {}
+    incoming_edges = {}
+    any_path = False
+    for node in resolution_path:
+        outgoing_edges[node] = []
+        for ne in graph.noise_edges:
+            if ne[0] == node:
+                outgoing_edges[node].append((ne[0], ne[1]))
+                any_path = True
+        incoming_edges[node] = []
+        for ne in graph.noise_edges:
+            if ne[1] == node:
+                incoming_edges[node].append((ne[0], ne[1]))
+                any_path = True
+    noise_edges = graph.noise_edges
+    # supporting
+    if args.noise_policy == "supporting":
+        if not (
+            len(outgoing_edges[graph.source]) >= 1
+            and len(incoming_edges[graph.sink]) >= 1
+        ):
+            raise AssertionError("supporting noise cannot be added to this graph!")
+    # dangling
+    elif args.noise_policy == "dangling":
+        if any_path:
+            # remove either all incoming or outgoing edges
+            remove_choice = random.choice(["incoming", "outgoing"])
+            if remove_choice == "incoming":
+                remove_edges = outgoing_edges
+            else:
+                remove_edges = incoming_edges
+            to_del = set(
+                list([x for node in resolution_path for x in remove_edges[node]])
+            )
+            noise_edges = [
+                edge for edge in graph.noise_edges if (edge[0], edge[1]) not in to_del
+            ]
+        else:
+            raise AssertionError("dangling noise cannot be added to this graph!")
+    # disconnected
+    elif args.noise_policy == "disconnected":
+        # remove all incoming and outgoing nodes from the resolution path
+        to_del = set(
+            list(
+                [x for node in resolution_path for x in outgoing_edges[node]]
+                + [x for node in resolution_path for x in incoming_edges[node]]
+            )
+        )
+        noise_edges = [
+            edge for edge in graph.noise_edges if (edge[0], edge[1]) not in to_del
+        ]
+    noise_graph = copy.deepcopy(graph)
+    noise_graph.noise_edges = noise_edges
+    return noise_graph
 
 
 def auto_update_config(args: DictConfig) -> DictConfig:
@@ -717,7 +781,22 @@ class GraphDataset:
             dump_jsonl(graphs, save_to)
 
     def apply_noise(self):
-        apply_noise(self.rows, self.args)
+        noisy_rows = []
+        issue_ct = 0
+        for ri, row in enumerate(self.rows):
+            try:
+                row = apply_noise_row(row, self.args)
+                row.edges = row.edges + row.noise_edges
+                noisy_rows.append(row)
+            except:
+                issue_ct += 1
+        if issue_ct > 0:
+            issue_per = np.round(issue_ct / len(self.rows), 2) * 100
+            print(
+                f"Unable to apply noise policy '{self.args.noise_policy}' to {issue_per} % ({issue_ct}/{len(self.rows)}) rows."
+            )
+            print("Tip: Consider increasing the number of graphs to search!")
+        self.rows = noisy_rows
 
 
 def split_world(
@@ -851,8 +930,14 @@ def main(args: DictConfig):
             )
             break
     pb.close()
-    rows_str = human_format(args.num_graphs)
+    # Apply noise
+    # Till now we have kept a separate list of edges for noise which are not accessed
+    # This is where we add them to our graphs depending on the noise addition policy
+    graph_store.apply_noise()
+    graph_store.save()
+
     # split train test
+    rows_str = human_format(args.num_graphs)
     _, train_ids, val_ids, test_ids = split_world(
         graph_store,
         test_size=args.test_size,
@@ -882,13 +967,8 @@ def main(args: DictConfig):
     graph_store.set_split_ids(train_ids, split_type="train")
     graph_store.set_split_ids(val_ids, split_type="valid")
     graph_store.set_split_ids(test_ids, split_type="test")
-
-    # Apply noise
-    # Till now we have kept a separate list of edges for noise which are not accessed
-    # This is where we add them to our graphs depending on the noise addition policy
-    graph_store.apply_noise()
-    # Save graphs
     graph_store.save()
+    # Save graphs
     # Sample world graph
     if args.world_graph.sample:
         world_edges = sample_world_graph(

@@ -4,7 +4,7 @@ world_prefix: world # was rule in v1.0
 seed: 40
 world_id: 0
 world_mode: # can be train/valid/test or None
-num_graphs: 1000 # max number of graphs (set a bit higher to allow all graphs to generate)
+num_graphs: 100 # max number of graphs (set a bit higher to allow all graphs to generate)
 num_train_graphs: 10
 num_valid_graphs: 10
 num_test_graphs: 10
@@ -13,7 +13,8 @@ re_index: True
 test_size: 0.2
 max_path_len: 5 # Number of relations : max_path_len - 1
 add_noise: False
-num_steps: 50
+noise_policy: "supporting"
+num_steps: 20
 expansion_prob: 0.5
 num_completion_steps: 10
 randomize_node_id: False
