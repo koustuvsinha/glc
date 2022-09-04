@@ -11,6 +11,8 @@ from tqdm.auto import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
+from dataclasses import dataclass, field
+from itertools import count
 
 from collections import Counter
 from sklearn.model_selection import train_test_split
@@ -200,9 +202,9 @@ def sample_path_and_target(
 
 def expansion_step(
     edges: List[Tuple[int, int, str]],
-    body_0_map: Dict[str, Tuple[int, int]],
-    body_1_map: Dict[str, Tuple[int, int]],
-    head_map: Dict[str, int],
+    body_0_map: Dict[str, Tuple[List[str], str]],
+    body_1_map: Dict[str, Tuple[List[str], str]],
+    head_map: Dict[str, Tuple[List[str], str]],
     new_node_id: int = 0,
     search_ct: int = 100,
 ) -> List[Tuple[int, int, str]]:
@@ -226,8 +228,8 @@ def expansion_step(
         List[Tuple[int, int, str]]: [description]
     """
     available_steps = []
-    u, v, R = None, None, None
-    for t in range(search_ct):
+    u, v, R = -1, -1, ""
+    for _ in range(search_ct):
         u, v, R = random.choice(edges)
         if R in body_0_map:
             available_steps.append("body_0")
@@ -256,7 +258,7 @@ def expansion_step(
 
 
 def completion_step(
-    edges: List[Tuple[int, int, str]], rules: Dict[Tuple[int, int], str]
+    edges: List[Tuple[int, int, str]], rules: List[Tuple[List[str], str]]
 ) -> List[Tuple[int, int, str]]:
     """generate one completion step, where one new edge is added among existing nodes
     randomly sample an edge (u,v,R)
@@ -271,6 +273,7 @@ def completion_step(
         [type]: [description]
     """
     edge_set = set(edges)
+    edge_no_rel = set([(e[0], e[1]) for e in edges])
 
     u, v, R = random.choice(edges)
 
@@ -286,7 +289,9 @@ def completion_step(
         if len(cand_rules) > 0:
             inject_rule = random.choice(cand_rules)
             R_j = inject_rule[0][1]
-            edge_set.add((x, v, R_j))
+            if (x, v) not in edge_no_rel:
+                edge_set.add((x, v, R_j))
+                edge_no_rel.add((x, v))
 
     if len(u_1) > 0:
         R_j = R
@@ -295,7 +300,9 @@ def completion_step(
         if len(cand_rules) > 0:
             inject_rule = random.choice(cand_rules)
             R_k = inject_rule[1]
-            edge_set.add((x, v, R_k))
+            if (x, v) not in edge_no_rel:
+                edge_set.add((x, v, R_k))
+                edge_no_rel.add((x, v))
 
     if len(v_0) > 0:
         R_i = R
@@ -304,7 +311,9 @@ def completion_step(
         if len(cand_rules) > 0:
             inject_rule = random.choice(cand_rules)
             R_k = inject_rule[1]
-            edge_set.add((u, x, R_k))
+            if (u, x) not in edge_no_rel:
+                edge_set.add((u, x, R_k))
+                edge_no_rel.add((u, x))
 
     if len(v_1) > 0:
         R_k = R
@@ -313,25 +322,66 @@ def completion_step(
         if len(cand_rules) > 0:
             inject_rule = random.choice(cand_rules)
             R_i = inject_rule[0][0]
-            edge_set.add((u, x, R_i))
+            if (u, x) not in edge_no_rel:
+                edge_set.add((u, x, R_i))
+                edge_no_rel.add((u, x))
 
     edges = list(edge_set)
 
     return edges
 
 
+@dataclass
+class GraphRow:
+    """
+    Graph Dataset row
+    """
+
+    edges: List[Tuple[int, int, str]]
+    source: int
+    sink: int
+    target: str
+    query: List[int]
+    descriptor: str
+    rules_used: List[str]
+    rules_used_pos: List[int]
+    resolution_path: List[int]
+    noise_edges: List[Tuple[int, int, str]]
+    gid: int = field(default_factory=count().__next__, init=False)
+
+    def get_str_without_noise(self):
+        return json.dumps(
+            {
+                "edges": self.edges,
+                "source": self.source,
+                "sink": self.sink,
+                "query": self.query,
+                "target": self.target,
+                "descriptor": self.descriptor,
+                "rules_used": self.rules_used,
+                "rules_used_pos": self.rules_used_pos,
+                "resolution_path": self.resolution_path,
+            }
+        )
+
+    def __eq__(self, other) -> bool:
+        if other.__class__ is not self.__class__:
+            return NotImplemented
+        return self.get_str_without_noise() == other.get_str_without_noise()
+
+    def __hash__(self):
+        return self.gid
+
+
 def sample_graph(
     rule_world: Dict[str, str],
     max_path_len: int = 5,
-    add_noise: bool = True,
     num_steps: int = 50,
     expansion_prob: float = 0.5,
     num_completion_steps: int = 10,
     debug: bool = False,
     random_path_len: bool = True,
-) -> Tuple[
-    List[Tuple[int, int, str]], int, int, str, str, List[Any], List[int], List[int]
-]:
+) -> GraphRow:
     """Main graph generation logic
 
     Args:
@@ -347,7 +397,7 @@ def sample_graph(
         debug (bool, optional): [description]. Defaults to False.
         random_path_len (bool, optional): Defaults to True. If False, fixes randomization of graph length, and is always max_path_length + 1
 
-    Returns:
+    Returns a GraphRow object containing:
         edges: list of edges of the graph (u,v,r)
         source: source node id
         sink: sink node id
@@ -355,6 +405,7 @@ def sample_graph(
         descriptor: descriptor of the graph, which is the concatenation of the relations in the shortest path from source to sink.
         rules_used: rules used to derive to the shortest path
         path: shortest path from the source to sink
+        noise_edges: list of edges of the graph (u,v,r) which are not required to solve the task
     """
     rules = [(body.split(","), head) for body, head in rule_world.items()]
     body_0_map, body_1_map, head_map = create_maps(rules)
@@ -379,43 +430,54 @@ def sample_graph(
 
     path_length = sink + 1
     path = list(range(path_length))
-    if add_noise:
-        if debug:
-            print("Sampling neighbors ...")
-        new_node = sink + 1
-        for _ in range(num_steps):
-            if random.uniform(0, 1) > expansion_prob:
-                edges = expansion_step(
-                    edges, body_0_map, body_1_map, head_map, new_node
-                )
-            new_node += 1
-            # run completion step for n numbers
-            for _ in range(random.choice(range(1, num_completion_steps))):
-                edges = completion_step(edges, rules)
+    noise_edges = copy.deepcopy(edges)
+    # Noise: sample neighbors
+    if debug:
+        print("Sampling neighbors ...")
+    new_node = sink + 1
+    for _ in range(num_steps):
+        if random.uniform(0, 1) > expansion_prob:
+            noise_edges = expansion_step(
+                noise_edges, body_0_map, body_1_map, head_map, new_node
+            )
+        new_node += 1
+        # run completion step for n numbers
+        for _ in range(random.choice(range(1, num_completion_steps))):
+            noise_edges = completion_step(noise_edges, rules)
+    ## remove self loops in noise
+    noise_edges = [e for e in noise_edges if e[0] != e[1]]
     if debug:
         print("Saving edge to rel map ...")
     edge2rel = {(e[0], e[1]): e[2] for e in edges}
     g = nx.DiGraph()
-    g.add_edges_from([(e[0], e[1]) for e in edges])
+    edges_to_add = [(e[0], e[1]) for e in edges]
+    g.add_edges_from(edges_to_add)
+    noise_edge2rel = {
+        (e[0], e[1]): e[2] for e in noise_edges if (e[0], e[1]) not in edges_to_add
+    }
+    noise_g = nx.DiGraph()
+    noise_edges_to_add = [(e[0], e[1]) for e in noise_edges]
+    # When creating noise digraph, add all edges from the clean graph as well
+    # This is needed to compute shortest paths
+    noise_g.add_edges_from(noise_edges_to_add + edges_to_add)
     if debug:
         print(nx.info(g))
 
     if debug:
         print("Removing shortest paths ...")
+    sub_e = list(g.edges)
     ## If noise has been added, Compute and remove shortest paths
-    if add_noise:
-        sub_e = list(g.edges)
-        aps = list(nx.all_simple_paths(g, source, sink, cutoff=path_length))
-        # print(len(aps))
-        sub_e = del_simple_paths(sub_e, aps, path)
-        g = nx.from_edgelist(sub_e, create_using=nx.DiGraph)
-        # print('Computing shortest paths from sink to source')
-        aps = list(nx.all_simple_paths(g, path[-1], path[0], cutoff=path_length))
-        # print(len(aps))
-        sub_e = del_simple_paths(sub_e, aps, path)
-        sub_e.extend(list(get_edges(path)))
-    else:
-        sub_e = list(g.edges)
+
+    sub_eg = list(noise_g.edges)
+    aps = list(nx.all_simple_paths(noise_g, source, sink, cutoff=path_length))
+    # print(len(aps))
+    sub_eg = del_simple_paths(sub_eg, aps, path)
+    g = nx.from_edgelist(sub_eg, create_using=nx.DiGraph)
+    # print('Computing shortest paths from sink to source')
+    aps = list(nx.all_simple_paths(noise_g, path[-1], path[0], cutoff=path_length))
+    # print(len(aps))
+    sub_eg = del_simple_paths(sub_eg, aps, path)
+    # sub_eg.extend(list(get_edges(path)))
 
     if debug:
         print("Done, computing stats of new graph")
@@ -429,8 +491,29 @@ def sample_graph(
     edges = [(e[0], e[1], edge2rel[(e[0], e[1])]) for e in sub_e]
     # sort edges
     edges = list(sorted(edges, key=lambda tup: tup[1]))
+    # for noise
+    sub_eg = list(set(sub_eg))
+    noise_edges = [
+        (e[0], e[1], noise_edge2rel[(e[0], e[1])])
+        for e in sub_eg
+        if (e[0], e[1]) in noise_edge2rel
+    ]
+    # sort edges
+    noise_edges = list(sorted(noise_edges, key=lambda tup: tup[1]))
     descriptor = ",".join(sampled_rule)
-    return edges, source, sink, target, descriptor, rules_used, rules_used_pos, path
+    query = [source, sink, target]
+    return GraphRow(
+        edges,
+        source,
+        sink,
+        target,
+        query,
+        descriptor,
+        rules_used,
+        rules_used_pos,
+        path,
+        noise_edges,
+    )
 
 
 def sample_world_graph(
@@ -496,8 +579,149 @@ def get_des_ids(sp):
         return []
 
 
+def re_index_nodes(graph: GraphRow, randomize_node_id=False):
+    """Re-index the node ids from 0
+
+    Args:
+        graph ([type]): graph object
+        randomize_node_id (bool): Defaults to False. If True,
+            then apply randomized node ids
+
+    Returns:
+        [type]: re-indexed graph object
+    """
+    node_map = {}
+    for e in graph.edges + graph.noise_edges:
+        if e[0] not in node_map:
+            node_map[e[0]] = len(node_map)
+        if e[1] not in node_map:
+            node_map[e[1]] = len(node_map)
+    if randomize_node_id > 0:
+        new_node_map = copy.deepcopy(node_map)
+        node_keys = list(node_map.keys())
+        rand_keys = random.sample(node_keys, len(node_keys))
+        for ni, nk in enumerate(node_keys):
+            new_node_map[rand_keys[ni]] = node_map[nk]
+        node_map = copy.deepcopy(new_node_map)
+    # reset
+    new_graph_edges = []
+    new_graph_noise_edges = []
+    new_graph_resolution_path = []
+    # replace
+    for e in graph.edges:
+        new_graph_edges.append((node_map[e[0]], node_map[e[1]], e[2]))
+    for e in graph.noise_edges:
+        new_graph_noise_edges.append((node_map[e[0]], node_map[e[1]], e[2]))
+    for p in graph.resolution_path:
+        new_graph_resolution_path.append(node_map[p])
+    new_graph_query = [node_map[graph.query[0]], node_map[graph.query[1]]]
+    new_graph = GraphRow(
+        new_graph_edges,
+        graph.source,
+        graph.sink,
+        graph.target,
+        new_graph_query,
+        graph.descriptor,
+        graph.rules_used,
+        graph.rules_used_pos,
+        new_graph_resolution_path,
+        new_graph_noise_edges,
+    )
+    return new_graph
+
+
+def apply_noise(graphs: List[GraphRow], args: DictConfig):
+    """
+    Apply noise on graphs based on the policy
+    """
+    breakpoint()
+    return graphs
+
+
+def auto_update_config(args: DictConfig) -> DictConfig:
+    """
+    Automatically update config based on user values
+    """
+    # Derive max_path_len from descriptor_lengths
+    # max_path_len is always 1 more than the desired length of the puzzle
+    max_path_len = (
+        max(
+            max([int(x) for x in args.train_descriptor_lengths.split(",")]),
+            max([int(x) for x in args.val_descriptor_lengths.split(",")]),
+            max([int(x) for x in args.test_descriptor_lengths.split(",")]),
+        )
+        + 1
+    )
+    args.max_path_len = max_path_len
+    # Derive num_graphs. This controls the total number of graphs generated,
+    # from which we will subsample
+    max_num_graphs = max(
+        [
+            args.num_graphs,
+            sum([args.num_train_graphs, args.num_valid_graphs, args.num_test_graphs]),
+        ]
+    )
+    args.num_graphs = max_num_graphs
+    return args
+
+
+class GraphDataset:
+    """
+    Graph dataset object
+    """
+
+    def __init__(self, args: DictConfig, save_loc: Path) -> None:
+        self.args = args
+        self.rows: List[GraphRow] = []
+        self.seen = {}
+        self.ids = {}
+        self.save_loc = save_loc
+
+    def add_row(self, row: GraphRow):
+        if self.args.re_index:
+            row = re_index_nodes(row, self.args.randomize_node_id)
+        row_str = row.get_str_without_noise()
+        if not self.args.unique_graphs or row_str not in self.seen:
+            self.rows.append(row)
+            self.seen[row_str] = 1
+            return True
+        else:
+            return False
+
+    def set_split_ids(self, ids, split_type="train"):
+        self.ids[split_type] = ids
+
+    def __len__(self):
+        return len(self.rows)
+
+    def save(self):
+        for split_type, split_ids in self.ids.items():
+            graphs = []
+            for split_id in split_ids:
+                row = self.rows[split_id]
+                graph = {
+                    "edges": row.edges,
+                    "source": row.source,
+                    "sink": row.sink,
+                    "query": row.query,
+                    "target": row.target,
+                    "descriptor": row.descriptor,
+                    "rules_used": row.rules_used,
+                    "rules_used_pos": row.rules_used_pos,
+                    "resolution_path": row.resolution_path,
+                    "noise_edges": row.noise_edges,
+                }
+                graphs.append(graph)
+            save_to = self.save_loc / f"{split_type}.jsonl"
+            print(f"Saving {len(graphs)} graphs in {save_to} ...")
+            dump_jsonl(graphs, save_to)
+
+    def apply_noise(self):
+        apply_noise(self.rows, self.args)
+
+
 def split_world(
-    world,
+    world: GraphDataset,
     test_size=0.2,
     keep_train_des_len=2,
     train_des_lens="",
@@ -517,7 +741,8 @@ def split_world(
     Returns:
         [type]: [description]
     """
-    des = list(Counter(world[i]["descriptor"] for i in range(len(world))).keys())
+    graphs = world.rows
+    des = list(Counter(graphs[i].descriptor for i in range(len(graphs))).keys())
     print(f"Generated {len(des)} unique descriptors")
     train_des = []
     res_des = []
@@ -572,79 +797,14 @@ def split_world(
     train_ids = []
     val_ids = []
     test_ids = []
-    for i, rec in enumerate(world):
-        if rec["descriptor"] in test_des:
+    for i, rec in enumerate(graphs):
+        if rec.descriptor in test_des:
             test_ids.append(i)
-        elif rec["descriptor"] in val_des:
+        elif rec.descriptor in val_des:
             val_ids.append(i)
         else:
             train_ids.append(i)
     return des, train_ids, val_ids, test_ids
-
-
-def re_index_nodes(graph, randomize_node_id=False):
-    """Re-index the node ids from 0
-
-    Args:
-        graph ([type]): graph object
-        randomize_node_id (bool): Defaults to False. If True,
-            then apply randomized node ids
-
-    Returns:
-        [type]: re-indexed graph object
-    """
-    node_map = {}
-    for e in graph["edges"]:
-        if e[0] not in node_map:
-            node_map[e[0]] = len(node_map)
-        if e[1] not in node_map:
-            node_map[e[1]] = len(node_map)
-    if randomize_node_id > 0:
-        new_node_map = copy.deepcopy(node_map)
-        node_keys = list(node_map.keys())
-        rand_keys = random.sample(node_keys, len(node_keys))
-        for ni, nk in enumerate(node_keys):
-            new_node_map[rand_keys[ni]] = node_map[nk]
-        node_map = copy.deepcopy(new_node_map)
-    new_graph = copy.deepcopy(graph)
-    # reset
-    new_graph["edges"] = []
-    new_graph["resolution_path"] = []
-    # replace
-    for e in graph["edges"]:
-        new_graph["edges"].append([node_map[e[0]], node_map[e[1]], e[2]])
-    for p in graph["resolution_path"]:
-        new_graph["resolution_path"].append(node_map[p])
-    new_graph["query"][0] = node_map[graph["query"][0]]
-    new_graph["query"][1] = node_map[graph["query"][1]]
-    return new_graph
-
-
-def auto_update_config(args: DictConfig) -> DictConfig:
-    """
-    Automatically update config based on user values
-    """
-    # Derive max_path_len from descriptor_lengths
-    # max_path_len is always 1 more than the desired length of the puzzle
-    max_path_len = (
-        max(
-            max([int(x) for x in args.train_descriptor_lengths.split(",")]),
-            max([int(x) for x in args.val_descriptor_lengths.split(",")]),
-            max([int(x) for x in args.test_descriptor_lengths.split(",")]),
-        )
-        + 1
-    )
-    args.max_path_len = max_path_len
-    # Derive num_graphs. This controls the total number of graphs generated,
-    # from which we will subsample
-    max_num_graphs = max(
-        [
-            args.num_graphs,
-            sum([args.num_train_graphs, args.num_valid_graphs, args.num_test_graphs]),
-        ]
-    )
-    args.num_graphs = max_num_graphs
-    return args
 
 
 @hydra.main(config_name="graph_config")
@@ -665,64 +825,33 @@ def main(args: DictConfig):
         Path(hydra.utils.get_original_cwd()) / f"{args.rule_store}_{task}.json"
     )
     print(f"Found {len(rules)} rules")
-    graph_store = []
+    graph_store = GraphDataset(args, save_loc)
     if args.unique_graphs:
         print(
             "Warning: unique constraints set, number of graphs found maybe lower than requested."
         )
-    seen_graphs = set()
     max_attempts = args.num_graphs * args.search_multiplier
     attempt = 0
     pb = tqdm(total=args.num_graphs)
     while len(graph_store) < args.num_graphs:
-        (
-            edges,
-            source,
-            sink,
-            target,
-            descriptor,
-            rules_used,
-            rules_used_pos,
-            path,
-        ) = sample_graph(
+        graph_row = sample_graph(
             rules,
             max_path_len=args.max_path_len,
-            add_noise=args.add_noise,
             num_steps=args.num_steps,
             expansion_prob=args.expansion_prob,
             num_completion_steps=args.num_completion_steps,
             debug=False,
         )
-        graph = {
-            "edges": edges,
-            "query": [source, sink, target],
-            "target": target,
-            "descriptor": descriptor,
-            "rules_used": rules_used,
-            "rules_used_pos": rules_used_pos,
-            "resolution_path": path,
-        }
-        if args.re_index:
-            graph = re_index_nodes(graph, args.randomize_node_id)
-        if args.unique_graphs:
-            # uniqueness constraint
-            graph_str = json.dumps(graph)
-            if graph_str not in seen_graphs:
-                graph_store.append(graph)
-                pb.update(1)
-            seen_graphs.add(graph_str)
-            attempt += 1
-            if attempt > max_attempts:
-                print(
-                    "Exhausted the number of attempts for graph search, consider lowering the total number of graphs requested."
-                )
-                break
-        else:
-            graph_store.append(graph)
+        attempt += 1
+        if graph_store.add_row(graph_row):
             pb.update(1)
+        if attempt > max_attempts:
+            print(
+                "Exhausted the number of attempts for graph search, consider lowering the total number of graphs requested."
+            )
+            break
     pb.close()
     rows_str = human_format(args.num_graphs)
-    dump_jsonl(graph_store, save_loc / f"graphs_{rows_str}_{task}.jsonl")
     # split train test
     _, train_ids, val_ids, test_ids = split_world(
         graph_store,
@@ -750,19 +879,21 @@ def main(args: DictConfig):
         {"train": train_ids, "valid": val_ids, "test": test_ids},
         open(save_loc / f"splits_{rows_str}.json", "w"),
     )
-    # Store train/valid/test in separate files
-    train_graphs = [graph_store[i] for i in train_ids]
-    valid_graphs = [graph_store[i] for i in val_ids]
-    test_graphs = [graph_store[i] for i in test_ids]
-    dump_jsonl(train_graphs, save_loc / "train.jsonl")
-    dump_jsonl(valid_graphs, save_loc / "valid.jsonl")
-    dump_jsonl(test_graphs, save_loc / "test.jsonl")
+    graph_store.set_split_ids(train_ids, split_type="train")
+    graph_store.set_split_ids(val_ids, split_type="valid")
+    graph_store.set_split_ids(test_ids, split_type="test")
+
+    # Apply noise
+    # Till now we have kept a separate list of edges for noise which are not accessed
+    # This is where we add them to our graphs depending on the noise addition policy
+    graph_store.apply_noise()
+    # Save graphs
+    graph_store.save()
     # Sample world graph
     if args.world_graph.sample:
         world_edges = sample_world_graph(
             rule_world=rules,
             max_path_len=args.world_graph.max_path_len,
-            add_noise=args.add_noise,
             num_sampled_paths=args.world_graph.num_sampled_paths,
             num_steps=args.world_graph.num_steps,
             expansion_prob=args.world_graph.expansion_prob,
