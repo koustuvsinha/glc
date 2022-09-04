@@ -51,6 +51,18 @@ def load_jsonl(input_path) -> list:
     return data
 
 
+def get_random_uniform(min, max, seed=-1):
+    if seed > 0:
+        random.seed(seed)
+    return random.uniform(min, max)
+
+
+def get_random_choice(some_list, seed=-1):
+    if seed > 0:
+        random.seed(seed)
+    return random.choice(some_list)
+
+
 def get_edges(path):
     return set([(path[pi], path[pi + 1]) for pi in range(len(path) - 1)])
 
@@ -130,6 +142,7 @@ def sample_path_and_target(
     random_path_len: bool = True,
     debug: bool = False,
     last_node: int = 0,
+    seed: int = -1,
 ) -> Tuple[List[Tuple[int, int, str]], List[str], List[int], int, int, str, List[str]]:
     """Sample a path and target for the graph
     Given a rule dict:
@@ -141,6 +154,7 @@ def sample_path_and_target(
         max_path_len (int, optional): [description]. Defaults to 5.
         random_path_len (bool, optional): [description]. Defaults to True.
         debug (bool, optional): [description]. Defaults to False.
+        seed (int, optional): if seed > 0, set the seed
 
     Returns:
         edge_list (List[Tuple[int, int, str]]): list of edges
@@ -156,9 +170,9 @@ def sample_path_and_target(
     rules_used = []
     rules_used_pos = []
     all_targets = list(set([head for body, head in rule_world.items()]))
-    sample_target = random.choice(all_targets)
-    sampled_rule = random.choice(
-        [body for body, head in rule_world.items() if head == sample_target]
+    sample_target = get_random_choice(all_targets, seed=seed)
+    sampled_rule = get_random_choice(
+        [body for body, head in rule_world.items() if head == sample_target], seed=seed
     )
     target = rule_world[sampled_rule]
     if debug:
@@ -168,19 +182,19 @@ def sample_path_and_target(
     sampled_rule = sampled_rule.split(",")
 
     if random_path_len:
-        path_length = random.choice(range(max_path_len - 1))
+        path_length = get_random_choice(range(max_path_len - 1), seed=seed)
     else:
         path_length = max_path_len - 1
 
     ## substitution mechanism
     for i in range(path_length - 1):
-        replace_pos = random.choice(range(len(sampled_rule)))
+        replace_pos = get_random_choice(range(len(sampled_rule)), seed=seed)
         replaced_head = sampled_rule[replace_pos]
         potential_bodies = [
             body for body, head in rule_world.items() if head == replaced_head
         ]
         if len(potential_bodies) > 0:
-            cand_body = random.choice(potential_bodies)
+            cand_body = get_random_choice(potential_bodies, seed=seed)
             rules_used.append(cand_body)
             rules_used_pos.append(replace_pos)
             cand_body = cand_body.split(",")
@@ -207,6 +221,7 @@ def expansion_step(
     head_map: Dict[str, Tuple[List[str], str]],
     new_node_id: int = 0,
     search_ct: int = 100,
+    seed: int = -1,
 ) -> List[Tuple[int, int, str]]:
     """generate one expansion step which results in one new node
     and two new edges.
@@ -223,6 +238,7 @@ def expansion_step(
         head_map (Dict[str, int]): [description]
         new_node_id (int, optional): [description]. Defaults to 0.
         search_ct (int, optional): [description]. Defaults to 100.
+        seed (int, optional): set seed > 1
 
     Returns:
         List[Tuple[int, int, str]]: [description]
@@ -241,24 +257,26 @@ def expansion_step(
             break
     if len(available_steps) == 0:
         return edges
-    expansion_policy = random.choice(available_steps)
+    expansion_policy = get_random_choice(available_steps, seed=seed)
     if expansion_policy == "head":
-        sample_rule = random.choice(head_map[R])
+        sample_rule = get_random_choice(head_map[R], seed=seed)
         edges.append((u, new_node_id, sample_rule[0][0]))
         edges.append((new_node_id, v, sample_rule[0][1]))
     elif expansion_policy == "body_0":
-        sample_rule = random.choice(body_0_map[R])
+        sample_rule = get_random_choice(body_0_map[R], seed=seed)
         edges.append((v, new_node_id, sample_rule[0][1]))
         edges.append((u, new_node_id, sample_rule[1]))
     elif expansion_policy == "body_1":
-        sample_rule = random.choice(body_1_map[R])
+        sample_rule = get_random_choice(body_1_map[R], seed)
         edges.append((new_node_id, u, sample_rule[0][1]))
         edges.append((new_node_id, v, sample_rule[1]))
     return edges
 
 
 def completion_step(
-    edges: List[Tuple[int, int, str]], rules: List[Tuple[List[str], str]]
+    edges: List[Tuple[int, int, str]],
+    rules: List[Tuple[List[str], str]],
+    seed: int = -1,
 ) -> List[Tuple[int, int, str]]:
     """generate one completion step, where one new edge is added among existing nodes
     randomly sample an edge (u,v,R)
@@ -269,13 +287,15 @@ def completion_step(
         - d: substitute R for R_k, sample (x,v, R_j), add if not present (u,x, R_i)
     Args:
         edges ([type]): [description]
+        rules ([type]): [description]
+        seed (int, optional): set seed > 0
     Returns:
         [type]: [description]
     """
     edge_set = set(edges)
     edge_no_rel = set([(e[0], e[1]) for e in edges])
 
-    u, v, R = random.choice(edges)
+    u, v, R = get_random_choice(edges, seed=seed)
 
     u_0 = [e for e in edges if e[0] == u]
     u_1 = [e for e in edges if e[1] == u]
@@ -284,10 +304,10 @@ def completion_step(
 
     if len(u_0) > 0:
         R_k = R
-        _, x, R_i = random.choice(u_0)
+        _, x, R_i = get_random_choice(u_0, seed=seed)
         cand_rules = [rule for rule in rules if rule[1] == R_k and rule[0][0] == R_i]
         if len(cand_rules) > 0:
-            inject_rule = random.choice(cand_rules)
+            inject_rule = get_random_choice(cand_rules, seed=seed)
             R_j = inject_rule[0][1]
             if (x, v) not in edge_no_rel:
                 edge_set.add((x, v, R_j))
@@ -298,7 +318,7 @@ def completion_step(
         x, _, R_i = random.choice(u_1)
         cand_rules = [rule for rule in rules if rule[0][1] == R_j and rule[0][0] == R_i]
         if len(cand_rules) > 0:
-            inject_rule = random.choice(cand_rules)
+            inject_rule = get_random_choice(cand_rules, seed=seed)
             R_k = inject_rule[1]
             if (x, v) not in edge_no_rel:
                 edge_set.add((x, v, R_k))
@@ -306,10 +326,10 @@ def completion_step(
 
     if len(v_0) > 0:
         R_i = R
-        _, x, R_j = random.choice(v_0)
+        _, x, R_j = get_random_choice(v_0, seed=seed)
         cand_rules = [rule for rule in rules if rule[0][0] == R_i and rule[0][1] == R_j]
         if len(cand_rules) > 0:
-            inject_rule = random.choice(cand_rules)
+            inject_rule = get_random_choice(cand_rules, seed=seed)
             R_k = inject_rule[1]
             if (u, x) not in edge_no_rel:
                 edge_set.add((u, x, R_k))
@@ -317,10 +337,10 @@ def completion_step(
 
     if len(v_1) > 0:
         R_k = R
-        x, _, R_j = random.choice(v_1)
+        x, _, R_j = get_random_choice(v_1, seed=seed)
         cand_rules = [rule for rule in rules if rule[1] == R_k and rule[0][1] == R_j]
         if len(cand_rules) > 0:
-            inject_rule = random.choice(cand_rules)
+            inject_rule = get_random_choice(cand_rules, seed=seed)
             R_i = inject_rule[0][0]
             if (u, x) not in edge_no_rel:
                 edge_set.add((u, x, R_i))
@@ -381,6 +401,7 @@ def sample_graph(
     num_completion_steps: int = 10,
     debug: bool = False,
     random_path_len: bool = True,
+    seed: int = -1,
 ) -> GraphRow:
     """Main graph generation logic
 
@@ -396,6 +417,7 @@ def sample_graph(
             Higher number results to dense graphs. Defaults to 10.
         debug (bool, optional): [description]. Defaults to False.
         random_path_len (bool, optional): Defaults to True. If False, fixes randomization of graph length, and is always max_path_length + 1
+        seed (int, optional): defaults to -1, when no seed is set. else, set a seed.
 
     Returns a GraphRow object containing:
         edges: list of edges of the graph (u,v,r)
@@ -426,6 +448,7 @@ def sample_graph(
         rule_world=rule_world,
         max_path_len=max_path_len,
         random_path_len=random_path_len,
+        seed=seed,
     )
 
     path_length = sink + 1
@@ -436,7 +459,8 @@ def sample_graph(
         print("Sampling neighbors ...")
     new_node = sink + 1
     for _ in range(num_steps):
-        if random.uniform(0, 1) > expansion_prob:
+        expansion_num = random.uniform(0, 1)
+        if expansion_num > expansion_prob:
             noise_edges = expansion_step(
                 noise_edges, body_0_map, body_1_map, head_map, new_node
             )
@@ -524,6 +548,7 @@ def sample_world_graph(
     expansion_prob: float = 0.5,
     num_completion_steps: int = 10,
     debug: bool = False,
+    seed: int = -1,
 ) -> List[Tuple[int, int, str]]:
     """Sample world graph given a rule world
 
@@ -534,6 +559,7 @@ def sample_world_graph(
         expansion_prob (float, optional): [description]. Defaults to 0.5.
         num_completion_steps (int, optional): [description]. Defaults to 10.
         debug (bool, optional): [description]. Defaults to False.
+        seed (int, optional): set seed > 0
 
     Returns:
         List[Tuple[int, int, str]]: [description]
@@ -545,7 +571,10 @@ def sample_world_graph(
     last_node = 0
     for _ in range(num_sampled_paths):
         (edges, _, _, _, last_node, _, _) = sample_path_and_target(
-            rule_world=rule_world, max_path_len=max_path_len, last_node=last_node
+            rule_world=rule_world,
+            max_path_len=max_path_len,
+            last_node=last_node,
+            seed=seed,
         )
         all_edges.extend(edges)
     # Complete the graph by repeated execution of expansion and contraction
@@ -630,6 +659,28 @@ def re_index_nodes(graph: GraphRow, randomize_node_id=False):
     return new_graph
 
 
+def get_incoming_outgoing_edges(graph: GraphRow):
+    """
+    Return a dictionary of incoming and outgoing edges
+    Return True/False if there exist any such edge
+    """
+    outgoing_edges = {}
+    incoming_edges = {}
+    any_path = False
+    for node in graph.resolution_path:
+        outgoing_edges[node] = []
+        for ne in graph.noise_edges:
+            if ne[0] == node:
+                outgoing_edges[node].append((ne[0], ne[1]))
+                any_path = True
+        incoming_edges[node] = []
+        for ne in graph.noise_edges:
+            if ne[1] == node:
+                incoming_edges[node].append((ne[0], ne[1]))
+                any_path = True
+    return incoming_edges, outgoing_edges, any_path
+
+
 def apply_noise_row(graph: GraphRow, args: DictConfig):
     """
     Apply noise on graphs based on the policy
@@ -646,20 +697,7 @@ def apply_noise_row(graph: GraphRow, args: DictConfig):
 
     """
     resolution_path = graph.resolution_path
-    outgoing_edges = {}
-    incoming_edges = {}
-    any_path = False
-    for node in resolution_path:
-        outgoing_edges[node] = []
-        for ne in graph.noise_edges:
-            if ne[0] == node:
-                outgoing_edges[node].append((ne[0], ne[1]))
-                any_path = True
-        incoming_edges[node] = []
-        for ne in graph.noise_edges:
-            if ne[1] == node:
-                incoming_edges[node].append((ne[0], ne[1]))
-                any_path = True
+    incoming_edges, outgoing_edges, any_path = get_incoming_outgoing_edges(graph)
     noise_edges = graph.noise_edges
     # supporting
     if args.noise_policy == "supporting":
