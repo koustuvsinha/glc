@@ -21,6 +21,15 @@ from rich.pretty import pprint
 import logging
 from rich.logging import RichHandler
 
+# Disable hydra internal loggings
+for _ in logging.root.manager.loggerDict:
+    logging.getLogger(_).setLevel(logging.CRITICAL)
+
+import warnings
+
+# Ignore hydra warnings
+warnings.filterwarnings("ignore", module="hydra")
+
 FORMAT = "%(message)s"
 logging.basicConfig(
     level="NOTSET",
