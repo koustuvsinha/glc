@@ -33,3 +33,6 @@ test_descriptor_lengths: 3,4
 hydra:
   job:
     chdir: False
+defaults:
+  - hydra/hydra_logging: none
+  - hydra/job_logging: none

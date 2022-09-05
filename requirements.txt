@@ -2,3 +2,4 @@ hydra-core
 scikit-learn
 tqdm
 networkx
+rich

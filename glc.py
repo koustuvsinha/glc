@@ -7,7 +7,7 @@ import json
 import random
 import numpy as np
 import copy
-from tqdm.auto import tqdm
+from tqdm.rich import tqdm
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
@@ -16,7 +16,24 @@ from itertools import count
 
 from collections import Counter
 from sklearn.model_selection import train_test_split
+from rich.pretty import pprint
 
+import logging
+from rich.logging import RichHandler
+
+FORMAT = "%(message)s"
+logging.basicConfig(
+    level="NOTSET",
+    format=FORMAT,
+    datefmt="[%X]",
+    handlers=[RichHandler()],
+)
+
+log = logging.getLogger(__name__)
+
+from rich.console import Console
+
+console = Console()
 ## Utility functions
 
 
@@ -36,7 +53,7 @@ def dump_jsonl(data, output_path, append=False):
         for line in data:
             json_record = json.dumps(line, ensure_ascii=False)
             f.write(json_record + "\n")
-    print("Wrote {} records to {}".format(len(data), output_path))
+    log.info("Wrote {} records to {}".format(len(data), output_path))
 
 
 def load_jsonl(input_path) -> list:
@@ -47,7 +64,7 @@ def load_jsonl(input_path) -> list:
     with open(input_path, "r", encoding="utf-8") as f:
         for line in f:
             data.append(json.loads(line.rstrip("\n|\r")))
-    print("Loaded {} records from {}".format(len(data), input_path))
+    log.info("Loaded {} records from {}".format(len(data), input_path))
     return data
 
 
@@ -182,7 +199,7 @@ def sample_path_and_target(
     )
     target = rule_world[sampled_rule]
     if debug:
-        print(target)
+        log.debug(target)
     rules_used.append(sampled_rule)
     rules_used_pos.append(0)
     sampled_rule = sampled_rule.split(",")
@@ -440,7 +457,7 @@ def sample_graph(
 
     ## generate resolution paths
     if debug:
-        print("Sampling resolution path ...")
+        log.debug("Sampling resolution path ...")
 
     (
         edges,
@@ -462,12 +479,12 @@ def sample_graph(
     noise_edges = copy.deepcopy(edges)
     # Noise: sample neighbors
     if debug:
-        print("Sampling neighbors ...")
+        log.debug("Sampling neighbors ...")
     new_node = sink + 1
     for _ in range(num_steps):
         expansion_num = get_random_uniform(0, 1, seed=seed)
         if debug:
-            print(f"expansion step: {expansion_num}")
+            log.debug(f"expansion step: {expansion_num}")
         if expansion_num > expansion_prob:
             noise_edges = expansion_step(
                 noise_edges, body_0_map, body_1_map, head_map, new_node, seed=seed
@@ -476,13 +493,13 @@ def sample_graph(
         # run completion step for n numbers
         completion_steps = get_random_choice(range(1, num_completion_steps), seed=seed)
         if debug:
-            print(f"completion steps: {completion_steps}")
+            log.debug(f"completion steps: {completion_steps}")
         for _ in range(completion_steps):
             noise_edges = completion_step(noise_edges, rules, seed=seed)
     ## remove self loops in noise
     noise_edges = [e for e in noise_edges if e[0] != e[1]]
     if debug:
-        print("Saving edge to rel map ...")
+        log.debug("Saving edge to rel map ...")
     edge2rel = {(e[0], e[1]): e[2] for e in edges}
     g = nx.DiGraph()
     edges_to_add = [(e[0], e[1]) for e in edges]
@@ -515,13 +532,13 @@ def sample_graph(
     # sub_eg.extend(list(get_edges(path)))
 
     if debug:
-        print("Done, computing stats of new graph")
+        log.debug("Done, computing stats of new graph")
         g = nx.DiGraph()
         g.add_edges_from([(e[0], e[1]) for e in sub_e])
-        print(nx.info(g))
+        log.debug(nx.info(g))
 
     if debug:
-        print("Getting final edges")
+        log.debug("Getting final edges")
     sub_e = list(set(sub_e))
     edges = [(e[0], e[1], edge2rel[(e[0], e[1])]) for e in sub_e]
     # sort edges
@@ -599,12 +616,12 @@ def sample_world_graph(
         # run completion step for n numbers
         for _ in range(get_random_choice(range(1, num_completion_steps), seed=seed)):
             all_edges = completion_step(all_edges, rules)
-    print("Complete")
+    log.info("Complete sampling world graph.")
     if debug:
-        print("Done, computing stats of world graph")
+        log.debug("Done, computing stats of world graph")
         g = nx.DiGraph()
         g.add_edges_from([(e[0], e[1]) for e in all_edges])
-        print(nx.info(g))
+        log.debug(nx.info(g))
 
     return all_edges
 
@@ -828,7 +845,7 @@ class GraphDataset:
                 }
                 graphs.append(graph)
             save_to = self.save_loc / f"{split_type}.jsonl"
-            print(f"Saving {len(graphs)} graphs in {save_to} ...")
+            log.info(f"Saving {len(graphs)} graphs in {save_to} ...")
             dump_jsonl(graphs, save_to)
 
     def apply_noise(self):
@@ -843,10 +860,10 @@ class GraphDataset:
                 issue_ct += 1
         if issue_ct > 0:
             issue_per = np.round(issue_ct / len(self.rows), 2) * 100
-            print(
+            log.warning(
                 f"Unable to apply noise policy '{self.args.noise_policy}' to {issue_per} % ({issue_ct}/{len(self.rows)}) rows."
             )
-            print("Tip: Consider increasing the number of graphs to search!")
+            log.warning("Tip: Consider increasing the number of graphs to search!")
         self.rows = noisy_rows
 
 
@@ -873,7 +890,7 @@ def split_world(
     """
     graphs = world.rows
     des = list(Counter(graphs[i].descriptor for i in range(len(graphs))).keys())
-    print(f"Generated {len(des)} unique descriptors")
+    log.info(f"Generated {len(des)} unique descriptors")
     train_des = []
     res_des = []
     des_len_ct = {}
@@ -888,7 +905,7 @@ def split_world(
             des_len_ct[num_des] = 0
         des_len_ct[num_des] += 1
 
-    print(f"Descriptor distribution: {des_len_ct}")
+    log.info(f"Descriptor distribution: {des_len_ct}")
 
     train_m_des, test_des = train_test_split(res_des, test_size=test_size)
     train_m_des, val_des = train_test_split(train_m_des, test_size=test_size)
@@ -902,15 +919,15 @@ def split_world(
     val_des_lens = get_des_ids(val_des_lens)
     test_des_lens = get_des_ids(test_des_lens)
     if len(train_des_lens) > 0:
-        print("Filtering train descriptors ...")
+        log.info("Filtering train descriptors ...")
         train_des = set(
             [des for des in train_des if len(des.split(",")) in train_des_lens]
         )
     if len(val_des_lens) > 0:
-        print("Filtering val descriptors ...")
+        log.info("Filtering val descriptors ...")
         val_des = set([des for des in val_des if len(des.split(",")) in val_des_lens])
     if len(test_des_lens) > 0:
-        print("Filtering test descriptors ...")
+        log.info("Filtering test descriptors ...")
         test_des = set(
             [des for des in test_des if len(des.split(",")) in test_des_lens]
         )
@@ -918,9 +935,11 @@ def split_world(
     def describe(des):
         return Counter([len(x.split(",")) for x in des])
 
-    print(f"Train unique descriptors: Total: {len(train_des)}, {describe(train_des)}")
-    print(f"Val unique descriptors: Total: {len(val_des)}, {describe(val_des)}")
-    print(
+    log.info(
+        f"Train unique descriptors: Total: {len(train_des)}, {describe(train_des)}"
+    )
+    log.info(f"Val unique descriptors: Total: {len(val_des)}, {describe(val_des)}")
+    log.info(
         f"Test unique descriptors: Total: {len(test_des)}, Dist: {describe(test_des)}"
     )
 
@@ -941,7 +960,8 @@ def split_world(
 def main(args: DictConfig):
     set_seed(args.seed)
     args = auto_update_config(args)
-    print(args)
+    console.rule("GLC - GraphLogCore Generator")
+    console.print(args)
     task = args.world_id
     ## Expects a dictionary of compositional rules, which contains rules of the form
     ## { (r_1, r_2): r_3 }, or (head -> body)
@@ -954,10 +974,10 @@ def main(args: DictConfig):
     rules = verify_and_load_rule_store(
         Path(hydra.utils.get_original_cwd()) / f"{args.rule_store}_{task}.json"
     )
-    print(f"Found {len(rules)} rules")
+    log.info(f"Found {len(rules)} rules")
     graph_store = GraphDataset(args, save_loc)
     if args.unique_graphs:
-        print(
+        log.warning(
             "Warning: unique constraints set, number of graphs found maybe lower than requested."
         )
     max_attempts = args.num_graphs * args.search_multiplier
@@ -976,7 +996,7 @@ def main(args: DictConfig):
         if graph_store.add_row(graph_row):
             pb.update(1)
         if attempt > max_attempts:
-            print(
+            log.warning(
                 "Exhausted the number of attempts for graph search, consider lowering the total number of graphs requested."
             )
             break
@@ -985,11 +1005,14 @@ def main(args: DictConfig):
     # Till now we have kept a separate list of edges for noise which are not accessed
     # This is where we add them to our graphs depending on the noise addition policy
     if args.add_noise:
-        print("Adding noise to the generated graphs ...")
+        log.info(
+            f"Adding noise to the generated graphs (policy: {args.noise_policy}) ..."
+        )
         graph_store.apply_noise()
         graph_store.save()
 
     # split train test
+    log.info("Splitting train val test ...")
     rows_str = human_format(args.num_graphs)
     _, train_ids, val_ids, test_ids = split_world(
         graph_store,
@@ -998,10 +1021,10 @@ def main(args: DictConfig):
         val_des_lens=args.val_descriptor_lengths,
         test_des_lens=args.test_descriptor_lengths,
     )
-    print(
+    log.info(
         f"Generated records: #Train: {len(train_ids)}, #Val: {len(val_ids)}, #Test: {len(test_ids)}"
     )
-    print("Subsampling ...")
+    log.info("Subsampling ...")
     # subsample if exact number required
     if len(train_ids) > args.num_train_graphs:
         train_ids = random.sample(train_ids, args.num_train_graphs)
@@ -1009,7 +1032,7 @@ def main(args: DictConfig):
         val_ids = random.sample(val_ids, args.num_valid_graphs)
     if len(test_ids) > args.num_test_graphs:
         test_ids = random.sample(test_ids, args.num_test_graphs)
-    print(
+    log.info(
         f"Storing records: #Train: {len(train_ids)}, #Val: {len(val_ids)}, #Test: {len(test_ids)}"
     )
     # Store splits
