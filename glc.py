@@ -51,10 +51,10 @@ def load_jsonl(input_path) -> list:
     return data
 
 
-def get_random_uniform(min, max, seed=-1):
+def get_random_uniform(min_n, max_n, seed=-1):
     if seed > 0:
         random.seed(seed)
-    return random.uniform(min, max)
+    return random.uniform(min_n, max_n)
 
 
 def get_random_choice(some_list, seed=-1):
@@ -252,7 +252,7 @@ def expansion_step(
     available_steps = []
     u, v, R = -1, -1, ""
     for _ in range(search_ct):
-        u, v, R = random.choice(edges)
+        u, v, R = get_random_choice(edges, seed=seed)
         if R in body_0_map:
             available_steps.append("body_0")
         if R in body_1_map:
@@ -273,7 +273,7 @@ def expansion_step(
         edges.append((v, new_node_id, sample_rule[0][1]))
         edges.append((u, new_node_id, sample_rule[1]))
     elif expansion_policy == "body_1":
-        sample_rule = get_random_choice(body_1_map[R], seed)
+        sample_rule = get_random_choice(body_1_map[R], seed=seed)
         edges.append((new_node_id, u, sample_rule[0][1]))
         edges.append((new_node_id, v, sample_rule[1]))
     return edges
@@ -321,7 +321,7 @@ def completion_step(
 
     if len(u_1) > 0:
         R_j = R
-        x, _, R_i = random.choice(u_1)
+        x, _, R_i = get_random_choice(u_1, seed=seed)
         cand_rules = [rule for rule in rules if rule[0][1] == R_j and rule[0][0] == R_i]
         if len(cand_rules) > 0:
             inject_rule = get_random_choice(cand_rules, seed=seed)
@@ -466,13 +466,18 @@ def sample_graph(
     new_node = sink + 1
     for _ in range(num_steps):
         expansion_num = get_random_uniform(0, 1, seed=seed)
+        if debug:
+            print(f"expansion step: {expansion_num}")
         if expansion_num > expansion_prob:
             noise_edges = expansion_step(
                 noise_edges, body_0_map, body_1_map, head_map, new_node, seed=seed
             )
         new_node += 1
         # run completion step for n numbers
-        for _ in range(get_random_choice(range(1, num_completion_steps), seed=seed)):
+        completion_steps = get_random_choice(range(1, num_completion_steps), seed=seed)
+        if debug:
+            print(f"completion steps: {completion_steps}")
+        for _ in range(completion_steps):
             noise_edges = completion_step(noise_edges, rules, seed=seed)
     ## remove self loops in noise
     noise_edges = [e for e in noise_edges if e[0] != e[1]]
@@ -687,11 +692,13 @@ def get_incoming_outgoing_edges(graph: GraphRow):
     return incoming_edges, outgoing_edges, any_path
 
 
-def apply_noise_row(graph: GraphRow, args: DictConfig, seed: int = -1):
+def apply_noise_row(
+    graph: GraphRow, noise_policy: str = "disconnected", seed: int = -1
+):
     """
     Apply noise on graphs based on the policy
 
-    Available policies = "dangling" / "disconnected" / "supporting"
+    noise_policy: available policies = "dangling" / "disconnected" / "supporting"
 
     - supporting: the source must have at least one outgoing node, and the sink must have one incoming node
      (although not guranteed that there exist a path in between)
@@ -706,14 +713,14 @@ def apply_noise_row(graph: GraphRow, args: DictConfig, seed: int = -1):
     incoming_edges, outgoing_edges, any_path = get_incoming_outgoing_edges(graph)
     noise_edges = graph.noise_edges
     # supporting
-    if args.noise_policy == "supporting":
+    if noise_policy == "supporting":
         if not (
             len(outgoing_edges[graph.source]) >= 1
             and len(incoming_edges[graph.sink]) >= 1
         ):
             raise AssertionError("supporting noise cannot be added to this graph!")
     # dangling
-    elif args.noise_policy == "dangling":
+    elif noise_policy == "dangling":
         if any_path:
             # remove either all incoming or outgoing edges
             remove_choice = get_random_choice(["incoming", "outgoing"], seed=seed)
@@ -730,7 +737,7 @@ def apply_noise_row(graph: GraphRow, args: DictConfig, seed: int = -1):
         else:
             raise AssertionError("dangling noise cannot be added to this graph!")
     # disconnected
-    elif args.noise_policy == "disconnected":
+    elif noise_policy == "disconnected":
         # remove all incoming and outgoing nodes from the resolution path
         to_del = set(
             list(
@@ -829,7 +836,7 @@ class GraphDataset:
         issue_ct = 0
         for ri, row in enumerate(self.rows):
             try:
-                row = apply_noise_row(row, self.args)
+                row = apply_noise_row(row, self.args.noise_policy)
                 row.edges = row.edges + row.noise_edges
                 noisy_rows.append(row)
             except:

@@ -1,5 +1,7 @@
 ## GraphLog v2.0 testing file
 from glc import (
+    apply_noise_row,
+    get_incoming_outgoing_edges,
     set_seed,
     create_maps,
     sample_path_and_target,
@@ -119,3 +121,45 @@ def test_sample_graph_no_noise():
     assert type(graph.descriptor) == str
     assert len(graph.descriptor.split(",")) == len(graph.edges)
     assert len(graph.resolution_path) == len(graph.edges) + 1
+
+
+def test_dangling_noise():
+    set_seed(42)
+    rule_world = {"R_1,R_2": "R_3", "R_2,R_3": "R_1", "R_3,R_1": "R_2"}
+    graph = sample_graph(
+        rule_world=rule_world,
+        max_path_len=5,
+        random_path_len=False,
+        seed=10,
+    )
+    _, _, _ = get_incoming_outgoing_edges(graph)
+    graph = apply_noise_row(graph, noise_policy="dangling", seed=10)
+    (
+        post_incoming_edges,
+        post_outgoing_edges,
+        _,
+    ) = get_incoming_outgoing_edges(graph)
+    num_outgoing_edges = sum([len(v) for k, v in post_outgoing_edges.items()])
+    num_incoming_edges = sum([len(v) for k, v in post_incoming_edges.items()])
+    assert num_outgoing_edges == 0 or num_incoming_edges == 0
+
+
+def test_disconnected_noise():
+    set_seed(42)
+    rule_world = {"R_1,R_2": "R_3", "R_2,R_3": "R_1", "R_3,R_1": "R_2"}
+    graph = sample_graph(
+        rule_world=rule_world,
+        max_path_len=5,
+        random_path_len=False,
+        seed=10,
+    )
+    _, _, _ = get_incoming_outgoing_edges(graph)
+    graph = apply_noise_row(graph, noise_policy="disconnected", seed=10)
+    (
+        post_incoming_edges,
+        post_outgoing_edges,
+        _,
+    ) = get_incoming_outgoing_edges(graph)
+    num_outgoing_edges = sum([len(v) for k, v in post_outgoing_edges.items()])
+    num_incoming_edges = sum([len(v) for k, v in post_incoming_edges.items()])
+    assert num_outgoing_edges == 0 and num_incoming_edges == 0
